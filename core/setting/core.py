@@ -126,6 +126,7 @@ def fix_openvpn_template() -> bool:
             template = file.read()
         
         # Check if remote line is missing IP (has format "remote  <port>" or "remote <port>")
+        # Only fix if IP is actually missing, not if it's already correct
         if re.search(r"^remote\s+\d+$", template, re.MULTILINE) or \
            re.search(r"^remote\s{2,}\d+$", template, re.MULTILINE):
             logger.warning("OpenVPN template has missing IP address, fixing...")
@@ -140,9 +141,15 @@ def fix_openvpn_template() -> bool:
             
             port = port_match.group(1) if port_match else "1194"
             
-            # Fix the remote line
+            # Fix ONLY the malformed remote line (with missing IP)
             template = re.sub(
-                r"^remote\s+.*$",
+                r"^remote\s+\d+$",
+                f"remote {public_ip} {port}",
+                template,
+                flags=re.MULTILINE
+            )
+            template = re.sub(
+                r"^remote\s{2,}\d+$",
                 f"remote {public_ip} {port}",
                 template,
                 flags=re.MULTILINE

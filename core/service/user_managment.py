@@ -103,12 +103,6 @@ def validate_and_fix_ovpn_file(ovpn_file: str) -> bool:
 
 def create_user_on_server(name, expiry_date=None) -> bool:
     try:
-        # Ensure OpenVPN template is fixed before creating user
-        from setting.core import fix_openvpn_template, fix_openvpn_server_config
-        logger.info("Ensuring OpenVPN configuration is correct before creating user...")
-        fix_openvpn_server_config()
-        fix_openvpn_template()
-        
         # Validate input name
         if not name or not name.strip():
             logger.error("Invalid user name: name cannot be empty")
