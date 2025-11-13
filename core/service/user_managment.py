@@ -4,6 +4,7 @@ import os
 import subprocess
 
 from logger import logger
+from service.r2_storage import upload_ovpn_to_r2, download_ovpn_from_r2, delete_ovpn_from_r2
 
 
 script_path = "/root/openvpn-install.sh"
@@ -173,6 +174,18 @@ def create_user_on_server(name, expiry_date=None) -> bool:
                 if os.path.exists(ovpn_file):
                     if validate_and_fix_ovpn_file(ovpn_file):
                         logger.info(f"OVPN file for '{name}' validated successfully")
+                        # Upload to R2 after successful validation
+                        upload_result = upload_ovpn_to_r2(ovpn_file, name)
+                        if upload_result:
+                            logger.info(f"OVPN file for '{name}' uploaded to R2 successfully")
+                            # Delete local file after successful upload to save disk space
+                            try:
+                                os.remove(ovpn_file)
+                                logger.info(f"Deleted local OVPN file for '{name}' after R2 upload")
+                            except Exception as e:
+                                logger.warning(f"Failed to delete local OVPN file for '{name}': {e}")
+                        else:
+                            logger.warning(f"Failed to upload OVPN file for '{name}' to R2, keeping local copy")
                         return True
                     else:
                         logger.error(f"OVPN file for '{name}' validation failed")
@@ -296,7 +309,13 @@ def delete_user_on_server(name) -> bool | str:
                 logger.info("Removed %s", file_to_delete)
             except Exception as e:
                 logger.error("Error deleting file %s: %s", file_to_delete, e)
-                return True
+        
+        # Delete from R2
+        delete_result = delete_ovpn_from_r2(name)
+        if delete_result:
+            logger.info(f"Deleted OVPN file for '{name}' from R2 successfully")
+        else:
+            logger.warning(f"Failed to delete OVPN file for '{name}' from R2")
 
         return True
 
@@ -319,6 +338,26 @@ def delete_user_on_server(name) -> bool | str:
 async def download_ovpn_file(name: str) -> str | None:
     """This function returns the path of the ovpn file for downloading"""
     file_path = f"/root/{name}.ovpn"
+    
+    # Try to download from R2 first
+    temp_path = f"/tmp/{name}.ovpn"
+    download_success = download_ovpn_from_r2(name, temp_path)
+    
+    if download_success and os.path.exists(temp_path):
+        # Validate and fix the downloaded file
+        if validate_and_fix_ovpn_file(temp_path):
+            logger.info(f"Downloaded and validated OVPN file for '{name}' from R2")
+            return temp_path
+        else:
+            logger.error(f"OVPN file validation failed for '{name}' from R2")
+            # Clean up temp file
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+    
+    # Fallback to local file if R2 download fails
+    logger.warning(f"Failed to download from R2, checking local file for '{name}'")
     if os.path.exists(file_path):
         # Validate and fix the file before returning
         if validate_and_fix_ovpn_file(file_path):
