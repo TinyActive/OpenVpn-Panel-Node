@@ -10,6 +10,11 @@ def change_config(request: SetSettingsModel) -> bool:
     setting_file = "/etc/openvpn/server/server.conf"
     template_file = "/etc/openvpn/server/client-common.txt"
     try:
+        # Determine tunnel address: use provided or fallback to public IP
+        tunnel_address = request.tunnel_address
+        if not tunnel_address:
+            tunnel_address = get_public_ip()
+
         with open(setting_file, "r") as file:
             config = file.read()
         config = re.sub(
@@ -23,7 +28,7 @@ def change_config(request: SetSettingsModel) -> bool:
         )
         config = re.sub(
             r"^local\s+.*",
-            f"local {request.tunnel_address}",
+            f"local {tunnel_address}",
             config,
             flags=re.MULTILINE,
         )
@@ -40,7 +45,7 @@ def change_config(request: SetSettingsModel) -> bool:
         remote_pattern = r"^remote\s+.*$"
         template = re.sub(
             remote_pattern,
-            f"remote {request.tunnel_address} {request.ovpn_port}",
+            f"remote {tunnel_address} {request.ovpn_port}",
             template,
             flags=re.MULTILINE,
         )
@@ -56,7 +61,7 @@ def change_config(request: SetSettingsModel) -> bool:
 
         restart_openvpn()
         logger.info(
-            f"OpenVPN port changed to {request.ovpn_port}, protocol to {request.protocol}, and tunnel address to {request.tunnel_address}"
+            f"OpenVPN port changed to {request.ovpn_port}, protocol to {request.protocol}, and tunnel address to {tunnel_address}"
         )
         return True
     except Exception as e:

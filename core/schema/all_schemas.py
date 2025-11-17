@@ -13,7 +13,7 @@ class ResponseModel(BaseModel):
 
 
 class SetSettingsModel(BaseModel):
-    tunnel_address: str
+    tunnel_address: Optional[str] = None
     protocol: str
     ovpn_port: int
     set_new_setting: bool
