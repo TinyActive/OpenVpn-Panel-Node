@@ -93,21 +93,28 @@ if [[ ! -e /etc/openvpn/server/server.conf ]]; then
 	fi
 	clear
 	echo 'Welcome to this OpenVPN road warrior installer!'
+	# Always try to get public IP first for client configuration
+	get_public_ip=$(grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' <<< "$(wget -T 10 -t 1 -4qO- "http://ip1.dynupdate.no-ip.com/" || curl -m 10 -4Ls "http://ip1.dynupdate.no-ip.com/")")
+	if [[ -n "$get_public_ip" ]]; then
+		public_ip="$get_public_ip"
+		echo "Detected public IPv4 address: $public_ip"
+	fi
 	# If system has a single IPv4, it is selected automatically. Else, use the first one
 	if [[ $(ip -4 addr | grep inet | grep -vEc '127(\.[0-9]{1,3}){3}') -eq 1 ]]; then
 		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}')
 	else
-		# Automatically select the first IPv4 address
+		# Automatically select the first IPv4 address (excluding localhost and tunnel 10.8.x.x)
 		ip_number="1"
-		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | sed -n "$ip_number"p)
-		echo "Using IPv4 address: $ip"
+		ip=$(ip -4 addr | grep inet | grep -vE '127(\.[0-9]{1,3}){3}' | cut -d '/' -f 1 | grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | grep -vE '^10\.8\.' | sed -n "$ip_number"p)
+		echo "Using local IPv4 address: $ip"
 	fi
 	# If $ip is a private IP address, the server must be behind NAT
 	if echo "$ip" | grep -qE '^(10\.|172\.1[6789]\.|172\.2[0-9]\.|172\.3[01]\.|192\.168)'; then
-		# Get public IP automatically
-		get_public_ip=$(grep -m 1 -oE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' <<< "$(wget -T 10 -t 1 -4qO- "http://ip1.dynupdate.no-ip.com/" || curl -m 10 -4Ls "http://ip1.dynupdate.no-ip.com/")")
-		public_ip="$get_public_ip"
-		echo "Using public IPv4 address: $public_ip"
+		echo "Server is behind NAT (private IP: $ip)"
+		# Ensure we have public IP for NAT scenario
+		if [[ -z "$public_ip" ]]; then
+			echo "Warning: Could not detect public IP address. Client configuration may not work."
+		fi
 	fi
 	# If system has a single IPv6, it is selected automatically
 	if [[ $(ip -6 addr | grep -c 'inet6 [23]') -eq 1 ]]; then
@@ -351,13 +358,19 @@ WantedBy=multi-user.target" >> /etc/systemd/system/openvpn-iptables.service
 		fi
 		semanage port -a -t openvpn_port_t -p "$protocol" "$port"
 	fi
-	# If the server is behind NAT, use the correct IP address
-	[[ -n "$public_ip" ]] && ip="$public_ip"
+	# Use public IP for client configuration if available, otherwise use detected IP
+	if [[ -n "$public_ip" ]]; then
+		client_ip="$public_ip"
+		echo "Using public IP for client configuration: $client_ip"
+	else
+		client_ip="$ip"
+		echo "Using server IP for client configuration: $client_ip"
+	fi
 	# client-common.txt is created so we have a template to add further users later
 	echo "client
 dev tun
 proto $protocol
-remote $ip $port
+remote $client_ip $port
 resolv-retry infinite
 nobind
 persist-key
